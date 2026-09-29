@@ -1,0 +1,31 @@
+{
+  "description": "World markets the admin allowlists with `allow_market`. `market` is the prediCt Market account; the pool reads the YES/NO mints and CASH vault from it on-chain, the others are listed for reference. Regenerate with scripts/fetch_world_fixtures.py.",
+  "predictProgram": "prediCtPZCttYMvm2W3PtxmMxLmT1dtN7riU6Cxh6tM",
+  "collateralMint": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+  "markets": [
+    {
+      "title": "NE Patriots vs JAC Jaguars",
+      "outcome": "JAC Jaguars",
+      "market": "HTX1g6exzFFHnoPypBCT3Xr7H7LFNom8jZhjZdo3PMZk",
+      "yesMint": "2KoffWttRBQ7NkcV7SQ7e72rSLejVcvtRagpcPVTJqwq",
+      "noMint": "BSeWrX3tjCjnh7iTEvfKAx77bQupKk7aNoQ6P6GYKjCC",
+      "cashVault": "Eg9n4NT3zAKgZEp7R7b9HqDcgWAhVdW18ueCrYeyhwtM"
+    },
+    {
+      "title": "Columbus vs Miami",
+      "outcome": "Miami",
+      "market": "BpaizvwfmCCraJJpFvsSCxPXAigULktom9FoiKiYyJJf",
+      "yesMint": "4DTXzSRELKn8pPUWo57NepfVFCkkpMTS2ggo68zsPQQg",
+      "noMint": "GG2PsEnGzui1waVQLq7PpNziCe2sr1NWvX3DnrvxFoFN",
+      "cashVault": "Cw7xpeWb9m3guhmk2Tq5TXSpUCGtF2RZKCSzrGfDCvGV"
+    },
+    {
+      "title": "Bitcoin 2026 Year-High",
+      "outcome": "Above $99,999.99",
+      "market": "4jdharW9HB7FRB46qgkvy1aCyNXEAaLWzkCCx8vgbCV2",
+      "yesMint": "AuMjrnXxaQm2TMziDh3pfunZPZvYDVAAvUutW2iurPc6",
+      "noMint": "Fk7s2usXbGx6P1rQJVhCVaDXY7psbhLLCGjUxb3wzPkJ",
+      "cashVault": "EJxCYRUNHy62kdwJ3Cf3YXWWdDHyoUbMC694vKSqffMv"
+    }
+  ]
+}

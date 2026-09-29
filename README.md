@@ -1,10 +1,10 @@
-# Yield-Bearing Outcome Tokens for World (Solana)
+# Vanna Prediction Earn Vault
 
-A Solana port of the Solidity [Yield-Bearing Outcome Tokens](../yield-bearing-outcome-tokens) pool, wired to [World](https://world.xyz/)'s prediction markets instead of Gnosis ConditionalTokens, with [Vanna](../Protocol_V1_Solana)'s USDC lending reserve as its yield vault.
+Yield-bearing outcome tokens on Solana: holders of [World](https://world.xyz/) prediction-market positions earn lending yield on them through [Vanna](../Protocol_V1_Solana)'s USDC reserve, without giving up their bet.
 
 Users deposit the YES and NO outcome tokens of a World market. The pool matches them into complete sets and merges each set into 1 CASH through World's `prediCt` program. It swaps the CASH into USDC through Jupiter and lends the USDC in Vanna's USDC reserve. Yield flows back to each side by redeeming USDC, swapping it back into CASH and splitting it into fresh YES/NO pairs. The scarce (fully matched) side earns the full rate and the surplus side is diluted by its utilization.
 
-Like the Solidity version, the design rests on one fact, which prediCt enforces exactly and fee-free:
+The design rests on one fact, which prediCt enforces exactly and fee-free:
 
 ```
 split(N):  N CASH       -> N YES + N NO
@@ -44,13 +44,13 @@ Also confirmed live: the 11-account `split` / `merge` roster (from real mainnet 
                                      (World: close_market) ──► settle_by_resolver
 ```
 
-**Open.** Works like the Solidity pool:
+**Open.**
 
 - `deposit(is_yes, amount)` moves outcome tokens in and mints that side's shares, priced against the side's assets before the tokens arrived. It's refused once World has determined the outcome, even before anyone calls `settle`: World may already have paid the pool CASH for its winning tokens, which open-market pricing doesn't count, so a late deposit would buy into it at a discount.
 - `merge_and_deposit(swap_data)` merges `min(YES, NO)` complete sets into CASH, swaps exactly that CASH into USDC with the caller's Jupiter route, and supplies all the pool's USDC to Vanna.
 - `redeem(is_yes, shares, swap_data)` pays dangling tokens first. On a shortfall it redeems that much USDC from Vanna, swaps it into CASH with the caller's Jupiter route and splits it; the other half of each new pair stays in the pool for the opposite side. `swap_data` is ignored when dangling tokens cover the redemption.
 
-**Settlement.** Gnosis keeps split/merge open after resolution, but World writes the outcome with `determine_outcome`, pays winners with `redeem_outcome_for_user`, burns losers with `burn_worthless_outcome`, and then deletes both mints, the CASH vault and the Market account with `close_market`. After that the pool can no longer turn CASH back into tokens, so it has an explicit settled phase:
+**Settlement.** World writes the outcome with `determine_outcome`, pays winners with `redeem_outcome_for_user`, burns losers with `burn_worthless_outcome`, and then deletes both mints, the CASH vault and the Market account with `close_market`. After that the pool can no longer turn CASH back into tokens, so it has an explicit settled phase:
 
 - `settle()` is permissionless. It reads the winner from the Market account (10000 = YES, 0 = NO) and rejects any other value.
 - `settle_by_resolver(yes_won)` is only for a market that World closed before anyone called `settle`. It's refused while the Market account still exists.
@@ -80,18 +80,18 @@ The pool counts USDC at par with CASH. Every swap is checked against that par, s
 
 A merge or redemption with its route names more accounts than a legacy transaction holds, so clients send v0 transactions with an address lookup table, as they would for any Jupiter swap.
 
-## Differences from the Solidity version
+## Design choices
 
-| Solidity | Solana | Why |
-|---|---|---|
-| One contract per market (CREATE2) | One program; each pool is a PDA seeded by `(market, reserve)` | Solana programs are singletons |
-| ERC-6909 shares on the factory | One Token-2022 share mint per side per pool, with the pool as mint authority | Wallet, transfer and `approve` support for free. A delegate plays the ERC-6909 operator role |
-| Deposit by ERC-1155 transfer hook | `deposit` instruction only; a plain transfer is a donation to that side | Token-2022 has no receive hook |
-| Best-effort merge via `try/catch` | `merge_and_deposit` is a separate instruction that clients append to the deposit transaction | A failed CPI cannot be caught on Solana |
-| Any ERC-4626 vault over the collateral | Vanna's USDC reserve, reached by a CASH <-> USDC swap checked against par | World settles in CASH; Vanna lends USDC |
-| No special handling at resolution | `settle` / `redeem_settled` | World closes split/merge and deletes the market |
-| Permissionless for any market, no admin | Admin allowlists markets and sets the swap keeper; pool creation for an allowed market is permissionless | A fixed market set was requested. The admin controls no pool funds |
-| `VIRTUAL_SHARES = 1e6` | `1e3`, and share mints have 3 more decimals than CASH | u64 supplies |
+| Choice | Why |
+|---|---|
+| One program; each pool is a PDA seeded by `(market, reserve)` | Every market's funds sit in token accounts only its own pool can sign for, so markets are isolated physically |
+| One Token-2022 share mint per side per pool (yYES, yNO), with the pool as mint authority | Wallet, transfer and `approve` support for free; an approved delegate can redeem on the owner's behalf |
+| Deposits go through the `deposit` instruction; a plain transfer into the pool is a donation to that side | Token-2022 has no receive hook, so a transfer cannot mint shares |
+| `merge_and_deposit` is its own instruction, sent by the keeper or appended to a deposit | A failed CPI cannot be caught on Solana, so a merge that Vanna or the swap refuses must not block deposits |
+| Vanna's USDC reserve as the yield vault, reached by a CASH <-> USDC swap checked against par | World settles in CASH; Vanna lends USDC |
+| A settled phase: `settle` / `redeem_settled` | World closes split/merge and deletes the market after resolving it |
+| The admin allowlists markets and sets the swap keeper; pool creation for an allowed market is permissionless | A curated market set; the admin controls no pool funds |
+| `VIRTUAL_SHARES = 1e3`, and share mints have 3 more decimals than CASH | An empty side keeps a defined, un-manipulable share price, and supplies stay within u64 |
 
 ## Allowed markets
 
@@ -103,7 +103,7 @@ World models each outcome of an event as its own binary market, so each entry is
 | Columbus vs Miami | Miami | `BpaizvwfmCCraJJpFvsSCxPXAigULktom9FoiKiYyJJf` | `4DTXzSRELKn8pPUWo57NepfVFCkkpMTS2ggo68zsPQQg` (`IMIA-Y`) |
 | Bitcoin 2026 Year-High | Above $99,999.99 | `4jdharW9HB7FRB46qgkvy1aCyNXEAaLWzkCCx8vgbCV2` | `AuMjrnXxaQm2TMziDh3pfunZPZvYDVAAvUutW2iurPc6` (`BTCH100-Y`) |
 
-[`config/markets.json`](config/markets.json) has the full set (NO mints, CASH vaults). Call `allow_market` once per market; the pool reads the mints and vault from the Market account itself. For every other World market, `scripts/list_world_markets.py` lists them all with their pool status, and [the operations guide](docs/adding-world-markets.pdf) covers adding them at scale.
+[`config/markets.json`](config/markets.json) has the full set (NO mints, CASH vaults). Call `allow_market` once per market; the pool reads the mints and vault from the Market account itself. For every other World market, `scripts/list_world_markets.py` lists them all with their pool status.
 
 ## Accepted risks
 
@@ -125,10 +125,9 @@ programs/outcome_yield_pool/
   src/predict.rs               World prediCt: Market layout, split/merge CPIs
   src/vanna.rs                 Vanna lending: Reserve layout, share math, refresh/supply/redeem CPIs
   src/jupiter.rs               Jupiter routes: validation, pool-signed CPI, balance checks
-  src/math.rs                  share <-> asset conversion (SharesMathLib)
+  src/math.rs                  share <-> asset conversion with virtual offsets
   tests/                       LiteSVM suites over real World, Jupiter, Orca and Vanna bytecode
 config/markets.json            the World markets the tests allowlist
-docs/adding-world-markets.pdf  deployment and operations guide: one-time setup, adding markets, background jobs
 fixtures/world/                mainnet snapshot: prediCt program, markets, holders, CASH mint
 fixtures/swap/                 mainnet snapshot: Jupiter and Whirlpool programs, CASH/USDC whirlpool, USDC mint
 fixtures/vanna/                Vanna's lending program, built from source at VANNA_PROGRAM_ID
@@ -154,20 +153,20 @@ The clock starts at the later of the two snapshots, since the whirlpool refuses 
 
 Re-snapshot with the scripts above. World's markets must still exist on mainnet: once World closes one, replace it in the script.
 
-| Solana test | Covers | Solidity counterpart |
-|---|---|---|
-| `factory.rs` | Config, allowlist, swap policy, pool creation, Vanna reserve validation | `Factory.t.sol`, `NonBinaryCondition.t.sol` |
-| `deposit.rs` | Pricing, merges into Vanna, donations | `Deposit.t.sol`, `DepositViaTransfer.t.sol` |
-| `redeem.rs` | Dangling-first, Vanna redemption + swap + split, route sizing, dust | `Redeem.t.sol`, `RevertPaths.t.sol` |
-| `authorization.rs` | Owners, delegates, transfers | `Authorization.t.sol`, `Transfer.t.sol` |
-| `deferred_merge.rs` | Merges refused by Vanna or by the swap policy, and their recovery | `DeferredMerge.t.sol` |
-| `yield_distribution.rs` | Real Vanna interest by side and by utilization | `YieldDistribution.t.sol`, `InvestedBalance.t.sol` |
-| `resolution.rs` | Settlement, USDC payouts, resolver fallback, late-deposit exploit | `Resolution.t.sol`, extended for World |
-| `market_isolation.rs` | Pools sharing one reserve never reach each other's funds | `MarketIsolation.t.sol` |
-| `swap_guards.rs` | Every way a route could reach past the swap; sandwiches; Vanna refusing | `MaliciousVault.t.sol`, `FeeVault.t.sol` |
-| `vanna_multi_pool.rs` | Three markets, three pools, one reserve: account collisions, reserve reconciliation, pro-rata interest, conversions, full lifecycle | None |
-| `invariant.rs` | Random operations over all three pools, with conservation and reserve reconciliation after every step | `invariant/Invariant.t.sol` |
-| `world_live.rs` | The pool's assumptions about prediCt, the live whirlpool and Vanna's layout | None |
+| Test suite | Covers |
+|---|---|
+| `factory.rs` | Config, allowlist, swap policy, pool creation, Vanna reserve validation |
+| `deposit.rs` | Pricing, merges into Vanna, donations |
+| `redeem.rs` | Dangling-first, Vanna redemption + swap + split, route sizing, dust |
+| `authorization.rs` | Owners, delegates, transfers |
+| `deferred_merge.rs` | Merges refused by Vanna or by the swap policy, and their recovery |
+| `yield_distribution.rs` | Real Vanna interest by side and by utilization |
+| `resolution.rs` | Settlement, USDC payouts, resolver fallback, late-deposit exploit |
+| `market_isolation.rs` | Pools sharing one reserve never reach each other's funds |
+| `swap_guards.rs` | Every way a route could reach past the swap; sandwiches; Vanna refusing |
+| `vanna_multi_pool.rs` | Three markets, three pools, one reserve: account collisions, reserve reconciliation, pro-rata interest, conversions, full lifecycle |
+| `invariant.rs` | Random operations over all three pools, with conservation and reserve reconciliation after every step |
+| `world_live.rs` | The pool's assumptions about prediCt, the live whirlpool and Vanna's layout |
 
 ## Development
 
@@ -189,5 +188,4 @@ The tests load `target/deploy/*.so`, so run `cargo build-sbf` after every progra
 
 ## License
 
-GPL-2.0-or-later, as the Solidity original.
-# vanna_prediction_earn_vault
+GPL-2.0-or-later. See [LICENSE](LICENSE).
