@@ -1,0 +1,22 @@
+{
+  "name": "vannafinance-vanna_prediction_earn_vault",
+  "version": "1.0.0",
+  "description": "Yield-bearing outcome tokens on Solana: holders of [World](https://world.xyz/) prediction-market positions earn lending yield on them through [Vanna](../Protocol_V1_Solana)'s USDC reserve, without giving up their bet.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github-vanna:vannafinance/vannafinance-vanna_prediction_earn_vault.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0"
+  }
+}

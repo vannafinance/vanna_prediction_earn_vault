@@ -25,7 +25,7 @@ pub mod vanna;
 use anchor_lang::prelude::*;
 use instructions::*;
 
-declare_id!("2h3hJSZVR6DgSGXmmf4wdBqo8z16kzMyVJ5gJWT1mskZ");
+declare_id!("4kFzca1u9TUAVK7BjJZ5vVtfJ2QRATs38vN8Bq6qZwG3");
 
 #[program]
 pub mod outcome_yield_pool {

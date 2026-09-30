@@ -1,0 +1,130 @@
+{
+  "source": "Vanna hosted Surfpool fork; Jupiter Manifest CASH/USDC route",
+  "capturedAt": "2026-09-30T09:29:05.714Z",
+  "slot": 451822292,
+  "pool": "6N6AgAfMUAxybBan769EYNCeGfdBCDLDwtxckAXCFmsr",
+  "programId": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  "accounts": [
+    {
+      "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "6N6AgAfMUAxybBan769EYNCeGfdBCDLDwtxckAXCFmsr",
+      "isSigner": true,
+      "isWritable": false
+    },
+    {
+      "pubkey": "Egn7Ftn6ijZnLKeAf1PMqo74s7GhMAvJ3cL37EABMhwN",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "AFNUt5XLHHDRyStMzHFnraY8XLCc3nDETyu2Gqiz5bP4",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "AFNUt5XLHHDRyStMzHFnraY8XLCc3nDETyu2Gqiz5bP4",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "MNFSTqtC93rEfYHB6hF82sKdZpUDFWkViLByLd1k1Ms",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "6N6AgAfMUAxybBan769EYNCeGfdBCDLDwtxckAXCFmsr",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "6N6AgAfMUAxybBan769EYNCeGfdBCDLDwtxckAXCFmsr",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "E1XDrrALLZJuzicaw7xBfQeSsFCWsZ6tY3dthWuB7GiU",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "11111111111111111111111111111111",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "Egn7Ftn6ijZnLKeAf1PMqo74s7GhMAvJ3cL37EABMhwN",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "AFNUt5XLHHDRyStMzHFnraY8XLCc3nDETyu2Gqiz5bP4",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "2foKAwvuvKfHjuVK6NjFG94cCTPCYWxbKRDjva9CtiJj",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "6EcioYG5g5svhRS3dL28JKp7VytCf86WPe9dNWVY95oJ",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "isSigner": false,
+      "isWritable": false
+    },
+    {
+      "pubkey": "4SMRzaLXsuvTi2B5cSVs4LuCUUqQhB2uByTWUvbixjfF",
+      "isSigner": false,
+      "isWritable": true
+    },
+    {
+      "pubkey": "6KzHa7L1MDTkaUb4qGiJqMvnmAy1qztGDeLvSHdS9ooU",
+      "isSigner": false,
+      "isWritable": true
+    }
+  ],
+  "data": "5RfLl3rjrSoBAAAAdAFkAAFRQ54AAAAAANY2ngAAAAAAMgAA"
+}

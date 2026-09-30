@@ -7,10 +7,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-outcome_yield_pool = "2h3hJSZVR6DgSGXmmf4wdBqo8z16kzMyVJ5gJWT1mskZ"
+outcome_yield_pool = "4kFzca1u9TUAVK7BjJZ5vVtfJ2QRATs38vN8Bq6qZwG3"
 
 [programs.mainnet]
-outcome_yield_pool = "2h3hJSZVR6DgSGXmmf4wdBqo8z16kzMyVJ5gJWT1mskZ"
+outcome_yield_pool = "4kFzca1u9TUAVK7BjJZ5vVtfJ2QRATs38vN8Bq6qZwG3"
 
 [provider]
 cluster = "localnet"
