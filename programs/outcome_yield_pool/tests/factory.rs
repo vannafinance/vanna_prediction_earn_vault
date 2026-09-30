@@ -3,10 +3,11 @@
 mod common;
 
 use common::*;
-use outcome_yield_pool::constants::{CASH_MINT, MAX_SWAP_LOSS_BPS_CAP, USDC_MINT, VANNA_PROGRAM_ID};
+use outcome_yield_pool::constants::{CASH_MINT, MAX_SWAP_LOSS_BPS_CAP, SWAP_DUST_UNITS, USDC_MINT, VANNA_PROGRAM_ID};
 use outcome_yield_pool::errors::PoolError;
 use outcome_yield_pool::state::Config;
 use solana_signer::Signer;
+use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 
 fn config(env: &Env) -> Config {
     let a = env.svm.get_account(&Env::config_pda()).unwrap();
@@ -71,6 +72,44 @@ fn same_market_cannot_get_a_second_pool() {
     let mut env = Env::new();
     let market = env.pool.market;
     assert_fails(env.create_pool(&market));
+}
+
+#[test]
+fn nobody_can_block_a_pool_by_creating_its_accounts_first() {
+    let mut env = Env::bare();
+    env.initialize_config();
+    let market = env.create_market();
+    env.allow_market(&market).unwrap();
+
+    // The pool's addresses are public before it exists. Anyone can create an associated token account for any address
+    // and send lamports to any address.
+    let griefer = env.user();
+    let (_, pool) = env.create_pool_ix(&griefer.pubkey(), &market);
+    let accounts = [
+        (CASH_MINT, TOKEN_2022),
+        (market.yes_mint, TOKEN_2022),
+        (market.no_mint, TOKEN_2022),
+        (USDC_MINT, SPL_TOKEN),
+        (vanna::share_mint(&USDC_MINT), SPL_TOKEN),
+    ];
+    let ixs: Vec<_> = accounts
+        .iter()
+        .map(|(mint, program)| create_associated_token_account_idempotent(&griefer.pubkey(), &pool.pool, mint, program))
+        .collect();
+    env.send_as(&griefer, &ixs).unwrap();
+    for pda in [pool.pool, pool.yes_share_mint, pool.no_share_mint] {
+        env.svm.airdrop(&pda, 1_000_000).unwrap();
+    }
+
+    let created = env.create_pool(&market).unwrap();
+    assert_eq!(created.pool, pool.pool);
+    let (alice, bob) = (env.user(), env.user());
+    let shares = env.deposit(&created, &alice, true, 10 * ONE);
+    env.deposit(&created, &bob, false, 10 * ONE);
+    assert!(env.vanna_shares(&created) > 0, "merged into Vanna");
+    // Back in full, less at most the keeper's swap allowance on the merge.
+    let floor = 10 * ONE * (10_000 - KEEPER_LOSS_BPS as u64) / 10_000 - SWAP_DUST_UNITS;
+    assert!(env.redeem(&created, &alice, true, shares) >= floor);
 }
 
 #[test]

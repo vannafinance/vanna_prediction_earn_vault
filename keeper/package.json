@@ -1,0 +1,28 @@
+{
+  "name": "vanna-prediction-earn-keeper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Watches the earn vault's Deposit and Redeem events and runs merge_and_deposit on every pool that holds complete sets.",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts run",
+    "once": "tsx src/index.ts once",
+    "pool": "tsx src/index.ts pool",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "fork": "tsx e2e/fork.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "1.98.4",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

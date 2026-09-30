@@ -71,14 +71,18 @@ Every pool lends into the same reserve, Vanna's reserve for USDC (`["reserve", U
 
 The pool counts USDC at par with CASH. Every swap is checked against that par, so no swap can make the invested balance overstate what the pool can pay.
 
-- **The caller picks the Jupiter route; the pool checks the result.** Only exact-input `route` and `shared_accounts_route` are accepted, with no platform fee, no fee account and no output redirect. The pool PDA must be the authority, the source and destination must be the pool's CASH and USDC accounts, and the mints must match. Only one pool token account may be the source and one the destination, so the YES, NO and Vanna-share accounts never reach the swap. Neither may this program, Vanna, prediCt, or any other account this program owns. Afterwards the pool checks that exactly the declared input left, measures what arrived, and checks that both token accounts are still plain pool accounts. This mirrors Vanna's own Jupiter adapter.
+- **The caller picks the Jupiter route; the pool checks the result.** Only exact-input `route` and `shared_accounts_route` are accepted, with no platform fee, no fee account and no output redirect. The pool PDA must be the authority, the source and destination must be the pool's CASH and USDC accounts, and the mints must match. Only one pool token account may be the source and one the destination, so the YES, NO and Vanna-share accounts never reach the swap. Neither may this program, Vanna, prediCt, or any other account this program owns. Every route account keeps the writability the route gives it, because some venues (Manifest, for one) take the user as a writable payer. That gives the route nothing, since only this program can change the pool's data or debit its lamports. Afterwards the pool checks that exactly the declared input left, measures what arrived, and checks that both token accounts are still plain pool accounts. This mirrors Vanna's own Jupiter adapter.
 - **Merges: 1 USDC per CASH, unless the keeper merges.** Selling CASH pays the AMM fee, about 2.3 bp on the live whirlpool, so a par-only merge doesn't go through today. The config's `keeper` may accept up to `max_swap_loss_bps` below par (capped at 100 bp by `MAX_SWAP_LOSS_BPS_CAP`). Everyone else must get par, because a caller who could accept less could route through a venue they price and keep the difference.
 - **Redemptions: 1 CASH per USDC, from everyone.** Buying CASH with USDC lands at or above par on the live whirlpool. A worse price would take the difference from both sides' holders, so it's refused (`a_sandwiched_redemption_fails_instead_of_paying_below_par`).
-- **Size limits on a redemption's route.** It must swap at least the shortfall and at most 0.1% + 0.001 USDC more. That's enough headroom for a client whose quote is a few seconds old, but not enough to pull the pool's funds out of Vanna for nothing. Any surplus CASH becomes pairs for both sides.
+- **Size limits on a redemption's route.** It must swap at least the shortfall and at most 0.1% + 0.001 USDC more. That's enough headroom for a client whose quote is a few seconds old, but not enough to pull the pool's funds out of Vanna for nothing. Any surplus CASH becomes pairs for both sides. When the shortfall is only a few raw units, route about 0.001 USDC instead: AMMs return nothing for a swap that small, and Jupiter's own slippage check then fails.
 - **Fee rounding.** Any swap may fall `SWAP_DUST_UNITS` (5 raw units, 0.000005) short of its floor. AMMs round a unit or two against the trader however small the swap, so without this a small redemption could never exit. If that rounding leaves a redemption's split short, the redeemer is paid what the split produced, at most 5 units under their claim.
 - **Merge exactly the merged CASH.** A merge swaps exactly `min(YES, NO)`, never CASH that was already idle.
 
 A merge or redemption with its route names more accounts than a legacy transaction holds, so clients send v0 transactions with an address lookup table, as they would for any Jupiter swap.
+
+## Keeper
+
+[`keeper/`](keeper) is the service that sends `merge_and_deposit`. It listens for `Deposit` and `Redeem` events and sweeps all pools every few minutes. For each pool holding complete sets, it quotes CASH -> USDC on Jupiter with the pool PDA as the user, runs the program's route checks before sending, simulates, and sends. It runs with the config's `keeper` key, so it can accept up to `max_swap_loss_bps` below par. It avoids a venue for a while if that venue refuses the pool's swap. See [keeper/README.md](keeper/README.md) for configuration and a Surfpool end-to-end run.
 
 ## Design choices
 
@@ -111,6 +115,7 @@ World models each outcome of an event as its own binary market, so each entry is
 - **Payouts follow prediCt's `UserSettings`.** `redeem_outcome_for_user` pays a holder's winnings to the payout wallet in its `["user_settings", holder]` account if one exists. Creating or updating it needs the holder's signature, which the pool PDA never gives, so the pool is always paid into its own CASH account (`nobody_can_set_up_payout_redirection_for_the_pool`).
 - **Non-binary outcomes.** Live prediCt accepts any outcome in 0–10000 (for example 5000 for a void). Every resolved market seen on mainnet used 0 or 10000; `settle` refuses anything else, which leaves such a pool to the resolver fallback, and that fallback only records a winner.
 - **Swapping costs both sides.** Each merge pays the CASH -> USDC fee (about 2.3 bp today) out of the invested balance, which both sides share. The keeper is trusted to route merges well; the most it can lose on one merge is `max_swap_loss_bps`. Fee rounding costs up to 5 raw units per swap.
+- **Deposit-and-redeem cycling.** Whoever deposits both sides, waits for the keeper's merge and redeems pays only their own share of that merge's fee; the rest falls on every other holder, and the fee goes to the swap venue. The holders' cost is about the pool's size over the cycler's size times the cycler's own. Measured on the live whirlpool: 100 rounds of 100 CASH a side against a pool of 1,000 + 1,000 cost the holders 3.6 CASH and the cycler 0.39. How often the keeper merges a pool bounds how fast this can happen.
 - **CASH/USDC depeg.** USDC is counted at par. If CASH trades above USDC, redemptions that need a swap fail until it's back at or below par. Redemptions covered by dangling tokens still work, and winners are paid in USDC with no swap. If CASH trades below USDC beyond the keeper's allowance, merges wait.
 - **Vanna must pay out.** A redemption that needs USDC fails while Vanna's reserve is frozen, the protocol is halted, or borrowers hold the liquidity (`winners_wait_for_vanna_liquidity_when_borrowers_hold_it`). A merge fails while Vanna refuses supply (paused, supply-capped). Both roll back whole and succeed once Vanna allows them. Vanna's share rounding costs up to one unit per supply or redemption, and its first-ever lender must supply at least 1000 raw units.
 - **CASH extensions.** CASH is a Bridge-issued Token-2022 mint with a transfer-hook extension whose program is currently unset. If Bridge sets one, transfers would need extra accounts.
@@ -131,6 +136,7 @@ config/markets.json            the World markets the tests allowlist
 fixtures/world/                mainnet snapshot: prediCt program, markets, holders, CASH mint
 fixtures/swap/                 mainnet snapshot: Jupiter and Whirlpool programs, CASH/USDC whirlpool, USDC mint
 fixtures/vanna/                Vanna's lending program, built from source at VANNA_PROGRAM_ID
+keeper/                        the merge keeper (TypeScript): events + sweep -> Jupiter route -> merge_and_deposit
 scripts/fetch_world_fixtures.py  refreshes fixtures/world
 scripts/fetch_swap_fixtures.py   refreshes fixtures/swap
 scripts/build_vanna_fixture.sh   rebuilds fixtures/vanna from ../Protocol_V1_Solana
@@ -155,7 +161,7 @@ Re-snapshot with the scripts above. World's markets must still exist on mainnet:
 
 | Test suite | Covers |
 |---|---|
-| `factory.rs` | Config, allowlist, swap policy, pool creation, Vanna reserve validation |
+| `factory.rs` | Config, allowlist, swap policy, pool creation (including when someone created the pool's accounts first), Vanna reserve validation |
 | `deposit.rs` | Pricing, merges into Vanna, donations |
 | `redeem.rs` | Dangling-first, Vanna redemption + swap + split, route sizing, dust |
 | `authorization.rs` | Owners, delegates, transfers |
@@ -166,6 +172,7 @@ Re-snapshot with the scripts above. World's markets must still exist on mainnet:
 | `swap_guards.rs` | Every way a route could reach past the swap; sandwiches; Vanna refusing |
 | `vanna_multi_pool.rs` | Three markets, three pools, one reserve: account collisions, reserve reconciliation, pro-rata interest, conversions, full lifecycle |
 | `invariant.rs` | Random operations over all three pools, with conservation and reserve reconciliation after every step |
+| `lifecycle.rs` | Random activity, then every market resolves, with World paying out before or after `settle`, after holders exit, or closing the market for the resolver. Every settled payout is exact to the unit and pro rata, a side never pays more than it holds, and only the virtual shares' dust stays behind |
 | `world_live.rs` | The pool's assumptions about prediCt, the live whirlpool and Vanna's layout |
 
 ## Development
@@ -175,6 +182,7 @@ Requires Solana 3.1.10 (platform tools v1.52) and Anchor 1.2. The fixtures are c
 ```sh
 cargo build-sbf                        # builds the pool into target/deploy
 cargo test -p outcome_yield_pool       # unit tests + LiteSVM integration suites
+LIFECYCLE_SEEDS=64 cargo test -p outcome_yield_pool --test lifecycle -- --ignored   # longer property run
 cargo clippy --workspace --lib
 
 scripts/build_vanna_fixture.sh         # after a Vanna change, or if VANNA_PROGRAM_ID changes

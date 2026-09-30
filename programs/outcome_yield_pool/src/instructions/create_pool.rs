@@ -10,6 +10,10 @@ use anchor_spl::token::Token;
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
+/// The pool's five token accounts are `init_if_needed`: anyone can create an associated token account for any address,
+/// including a pool PDA that doesn't exist yet, so a plain `init` would let anyone block a market's only pool for the
+/// price of one account. Anchor still checks each one's mint, owner and token program, and only the associated-token
+/// program can create an account at those addresses, so an existing one is always an ordinary account of the pool.
 #[derive(Accounts)]
 pub struct CreatePool<'info> {
     #[account(mut)]
@@ -59,7 +63,7 @@ pub struct CreatePool<'info> {
     )]
     pub no_share_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = collateral_mint,
         associated_token::authority = pool,
@@ -67,7 +71,7 @@ pub struct CreatePool<'info> {
     )]
     pub pool_cash: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = yes_mint,
         associated_token::authority = pool,
@@ -75,7 +79,7 @@ pub struct CreatePool<'info> {
     )]
     pub pool_yes: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = no_mint,
         associated_token::authority = pool,
@@ -83,7 +87,7 @@ pub struct CreatePool<'info> {
     )]
     pub pool_no: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = usdc_mint,
         associated_token::authority = pool,
@@ -92,7 +96,7 @@ pub struct CreatePool<'info> {
     pub pool_usdc: Box<InterfaceAccount<'info, TokenAccount>>,
     /// Created here so Vanna's `lender_supply` never has to create it with the pool as payer.
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = vanna_share_mint,
         associated_token::authority = pool,
