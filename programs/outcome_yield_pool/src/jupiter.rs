@@ -159,12 +159,12 @@ pub fn swap<'info>(
     let source_before = token::amount(source.account)?;
     let destination_before = token::amount(destination.account)?;
 
+    // Writability passes through as the route asks: some venues (Manifest) take the user as a writable payer, and a
+    // read-only pool there fails the whole swap with PrivilegeEscalation. A writable pool gives the route nothing: only
+    // this program can change its data or debit its lamports, and this program is kept out of the route above.
     let metas = route_accounts
         .iter()
-        .map(|a| {
-            let is_pool = a.key() == pool.key();
-            AccountMeta { pubkey: a.key(), is_signer: is_pool, is_writable: a.is_writable && !is_pool }
-        })
+        .map(|a| AccountMeta { pubkey: a.key(), is_signer: a.key() == pool.key(), is_writable: a.is_writable })
         .collect();
     let mut infos = route_accounts.to_vec();
     infos.push(jupiter_program.clone());
