@@ -76,6 +76,13 @@ pub mod outcome_yield_pool {
         instructions::merge_and_deposit::merge_and_deposit(ctx, swap_data)
     }
 
+    pub fn merge_and_deposit_in_group<'info>(
+        ctx: Context<'info, MergeAndDepositInGroup<'info>>,
+        swap_data: Vec<u8>,
+    ) -> Result<()> {
+        instructions::merge_and_deposit::merge_and_deposit_in_group(ctx, swap_data)
+    }
+
     pub fn redeem<'info>(
         ctx: Context<'info, RedeemOutcome<'info>>,
         is_yes: bool,

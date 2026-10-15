@@ -31,6 +31,18 @@ pub const OUTCOME_NO: u16 = 0;
 pub const SPLIT_DISCRIMINATOR: [u8; 8] = [124, 189, 27, 43, 216, 40, 147, 66];
 pub const MERGE_DISCRIMINATOR: [u8; 8] = [148, 141, 236, 47, 174, 126, 69, 111];
 
+/// `sha256("account:Group")[:8]`: a World Group (one event with several outcome markets), verified against live accounts.
+pub const GROUP_DISCRIMINATOR: [u8; 8] = [0xd1, 0xf9, 0xd0, 0x3f, 0xb6, 0x59, 0xba, 0xfe];
+/// prediCt's merge for a market inside a Group. Every outcome market of a Group shares one CASH vault owned by the
+/// Group, so the market-level `merge` (which signs the vault transfer as the market) fails there with "owner does not
+/// match". Decoded from a live mainnet call (tx `2duN1LaSh46Hz3PjoCDpL4RzzU6W5qBTfR3QJDEwFrrwiqkMifR7sy9nSeVxZiNMf6BdM9Ji9jyBCkoGmirJnZek`):
+/// the same 11 accounts as `merge` with the Group inserted read-only at index 1, and the same `u64 amount` argument.
+/// `split` needs no Group variant: it only pays CASH into the vault.
+pub const GROUP_MERGE_DISCRIMINATOR: [u8; 8] = [0xa1, 0x40, 0x95, 0x70, 0xf2, 0xa0, 0x45, 0xb9];
+
+/// SPL token account layout: the owner sits at bytes 32..64.
+const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;
+
 pub struct MarketView {
     pub creator: Pubkey,
     pub collateral_mint: Pubkey,
@@ -73,6 +85,21 @@ pub fn read_outcome(market: &AccountInfo) -> Result<Option<u16>> {
     Ok(Some(outcome))
 }
 
+/// Owner of a token account (the market CASH vault): the market itself, or the World Group it belongs to.
+pub fn token_account_owner(account: &AccountInfo) -> Result<Pubkey> {
+    let data = account.try_borrow_data()?;
+    require!(data.len() >= TOKEN_ACCOUNT_OWNER_OFFSET + 32, PoolError::NotPredictMarket);
+    Ok(read_pubkey(&data, TOKEN_ACCOUNT_OWNER_OFFSET))
+}
+
+/// Checks `group` is a live World Group account.
+pub fn require_group(group: &AccountInfo) -> Result<()> {
+    require_keys_eq!(*group.owner, PREDICT_PROGRAM_ID, PoolError::NotPredictMarket);
+    let data = group.try_borrow_data()?;
+    require!(data.len() >= 8 && data[..8] == GROUP_DISCRIMINATOR, PoolError::NotPredictMarket);
+    Ok(())
+}
+
 /// True once World's `close_market` has torn the account down.
 pub fn is_closed(market: &AccountInfo) -> bool {
     market.lamports() == 0 || *market.owner != PREDICT_PROGRAM_ID || market.data_is_empty()
@@ -94,59 +121,68 @@ pub struct SetAccounts<'a, 'info> {
 }
 
 impl<'a, 'info> SetAccounts<'a, 'info> {
-    fn invoke(&self, discriminator: [u8; 8], amount: u64, signer_seeds: &[&[&[u8]]]) -> Result<()> {
+    /// `group`: the World Group for the Group form of `merge` (inserted read-only at index 1), `None` otherwise.
+    fn invoke(
+        &self,
+        discriminator: [u8; 8],
+        amount: u64,
+        signer_seeds: &[&[&[u8]]],
+        group: Option<&AccountInfo<'info>>,
+    ) -> Result<()> {
         require_keys_eq!(self.predict_program.key(), PREDICT_PROGRAM_ID, PoolError::NotPredictMarket);
 
         let mut data = Vec::with_capacity(16);
         data.extend_from_slice(&discriminator);
         data.extend_from_slice(&amount.to_le_bytes());
 
-        let ix = Instruction {
-            program_id: PREDICT_PROGRAM_ID,
-            accounts: vec![
-                // prediCt declares its `user` signer `mut`.
-                AccountMeta::new(self.authority.key(), true),
-                AccountMeta::new(self.market.key(), false),
-                AccountMeta::new_readonly(self.collateral_mint.key(), false),
-                AccountMeta::new(self.yes_mint.key(), false),
-                AccountMeta::new(self.no_mint.key(), false),
-                AccountMeta::new(self.authority_cash.key(), false),
-                AccountMeta::new(self.market_cash_vault.key(), false),
-                AccountMeta::new(self.authority_yes.key(), false),
-                AccountMeta::new(self.authority_no.key(), false),
-                AccountMeta::new_readonly(self.token_program.key(), false),
-                AccountMeta::new_readonly(self.token_program.key(), false),
-            ],
-            data,
-        };
+        // prediCt declares its `user` signer `mut`.
+        let mut accounts = vec![AccountMeta::new(self.authority.key(), true)];
+        let mut infos = vec![self.authority.clone()];
+        if let Some(group) = group {
+            accounts.push(AccountMeta::new_readonly(group.key(), false));
+            infos.push(group.clone());
+        }
+        accounts.extend([
+            AccountMeta::new(self.market.key(), false),
+            AccountMeta::new_readonly(self.collateral_mint.key(), false),
+            AccountMeta::new(self.yes_mint.key(), false),
+            AccountMeta::new(self.no_mint.key(), false),
+            AccountMeta::new(self.authority_cash.key(), false),
+            AccountMeta::new(self.market_cash_vault.key(), false),
+            AccountMeta::new(self.authority_yes.key(), false),
+            AccountMeta::new(self.authority_no.key(), false),
+            AccountMeta::new_readonly(self.token_program.key(), false),
+            AccountMeta::new_readonly(self.token_program.key(), false),
+        ]);
+        let ix = Instruction { program_id: PREDICT_PROGRAM_ID, accounts, data };
 
-        invoke_signed(
-            &ix,
-            &[
-                self.authority.clone(),
-                self.market.clone(),
-                self.collateral_mint.clone(),
-                self.yes_mint.clone(),
-                self.no_mint.clone(),
-                self.authority_cash.clone(),
-                self.market_cash_vault.clone(),
-                self.authority_yes.clone(),
-                self.authority_no.clone(),
-                self.token_program.clone(),
-                self.predict_program.clone(),
-            ],
-            signer_seeds,
-        )
-        .map_err(Into::into)
+        infos.extend([
+            self.market.clone(),
+            self.collateral_mint.clone(),
+            self.yes_mint.clone(),
+            self.no_mint.clone(),
+            self.authority_cash.clone(),
+            self.market_cash_vault.clone(),
+            self.authority_yes.clone(),
+            self.authority_no.clone(),
+            self.token_program.clone(),
+            self.predict_program.clone(),
+        ]);
+        invoke_signed(&ix, &infos, signer_seeds).map_err(Into::into)
     }
 
     /// Locks `amount` CASH and mints `amount` YES + `amount` NO to the authority.
     pub fn split(&self, amount: u64, signer_seeds: &[&[&[u8]]]) -> Result<()> {
-        self.invoke(SPLIT_DISCRIMINATOR, amount, signer_seeds)
+        self.invoke(SPLIT_DISCRIMINATOR, amount, signer_seeds, None)
     }
 
     /// Burns `amount` YES + `amount` NO from the authority and releases `amount` CASH to it.
     pub fn merge(&self, amount: u64, signer_seeds: &[&[&[u8]]]) -> Result<()> {
-        self.invoke(MERGE_DISCRIMINATOR, amount, signer_seeds)
+        self.invoke(MERGE_DISCRIMINATOR, amount, signer_seeds, None)
+    }
+
+    /// `merge` for a market inside a World Group, whose shared CASH vault the Group owns and signs for.
+    pub fn merge_in_group(&self, group: &AccountInfo<'info>, amount: u64, signer_seeds: &[&[&[u8]]]) -> Result<()> {
+        self.invoke(GROUP_MERGE_DISCRIMINATOR, amount, signer_seeds, Some(group))
     }
 }

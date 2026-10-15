@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -224,6 +225,156 @@ async function mergeAndDeposit() {
   console.log("merge_and_deposit tx:", sig);
 }
 
+/** World market data comes from the app's own API (reads real mainnet, already proven to work
+ *  for every market on the browse page) rather than a raw fork read: a market account that no
+ *  transaction has touched on the Surfpool fork yet isn't cloned there, so a bare
+ *  `getAccountInfo` on the fork for it fails with "Internal error" even though the market is
+ *  perfectly real — only a transaction's own account resolution triggers the fork's lazy clone. */
+const rawAppUrl = process.env.APP_URL ?? "http://localhost:3000";
+const APP_URL = /^https?:\/\//.test(rawAppUrl) ? rawAppUrl : `https://${rawAppUrl}`;
+const CASH_MINT = new PublicKey("CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH");
+
+/**
+ * Onboards one or more World markets for the yield pool in a single run: calls `allow_market`
+ * (admin-only) then `create_pool` for each market pubkey given, looking up yesMint/noMint via the
+ * app's `/api/world/markets/:id` route so you only need to pass the market pubkey, nothing else.
+ * Safe to re-run: skips either step if it's already done for that market.
+ * Usage: node scripts/admin.mjs onboardMarket <MARKET_PUBKEY> [MARKET_PUBKEY_2] ...
+ * (set APP_URL if the app isn't on http://localhost:3000)
+ */
+async function onboardMarket() {
+  const marketArgs = process.argv.slice(3);
+  if (marketArgs.length === 0) {
+    console.error("Usage: node scripts/admin.mjs onboardMarket <MARKET_PUBKEY> [MARKET_PUBKEY_2] ...");
+    process.exit(1);
+  }
+
+  const vannaReserve = reservePda(USDC_MINT);
+  const vannaShareMint = shareMintPda(USDC_MINT);
+
+  const failed = [];
+  for (const marketStr of marketArgs) {
+    const market = new PublicKey(marketStr);
+    console.log(`\n=== ${market.toBase58()} ===`);
+    try {
+      await onboardOne(market);
+    } catch (error) {
+      console.error("  FAILED:", error instanceof Error ? error.message : error);
+      failed.push(market.toBase58());
+    }
+  }
+  if (failed.length) {
+    console.log(`\n${failed.length} market(s) failed, re-run just these:\n${failed.join(" ")}`);
+  }
+
+  async function onboardOne(market) {
+    const res = await fetch(`${APP_URL}/api/world/markets/${market.toBase58()}`);
+    const data = await res.json();
+    if (!data.market) {
+      console.error("  market lookup failed via app API, skipping:", data.error ?? `HTTP ${res.status}`);
+      return;
+    }
+    const yesMint = new PublicKey(data.market.yesMint);
+    const noMint = new PublicKey(data.market.noMint);
+    const cashMint = CASH_MINT;
+    console.log("  question:", data.market.question);
+    console.log("  yesMint: ", yesMint.toBase58());
+    console.log("  noMint:  ", noMint.toBase58());
+
+    // The fork's getAccountInfo intermittently throws "Internal error" for an account it has
+    // never been asked about before (same quirk documented in healRouteAccounts/pool-keeper.
+    // server.ts) rather than cleanly returning null — a single throw is not trustworthy evidence
+    // of absence. Confirmed live: "pool already exists" checks for KNOWN-good pools (e.g. Seattle,
+    // Athletic Bilbao — tested extensively earlier this session) returned a false negative once,
+    // which then sent a real create_pool at an already-initialised pool and failed. Retry a few
+    // times before concluding "not found"; only a true account read (null value, no throw) or
+    // every attempt failing counts as "doesn't exist".
+    const existsOnFork = async (pubkey) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const info = await connection.getAccountInfo(pubkey);
+          if (info) return true;
+          return false; // clean null — genuinely doesn't exist, no need to retry
+        } catch {
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+      return false;
+    };
+
+    const [allowedMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("allowed_market"), market.toBuffer()],
+      program.programId,
+    );
+    if (await existsOnFork(allowedMarketPda)) {
+      console.log("  allow_market: already allowed, skipping");
+    } else {
+      const sig = await program.methods.allowMarket().accounts({ admin: wallet.publicKey, market }).rpc();
+      console.log("  allow_market tx:", sig);
+      // The fork can confirm this tx yet still simulate create_pool against slightly-stale state
+      // right after — the next instruction's simulation doesn't always see the write that just
+      // landed (same eventual-consistency quirk as the share-mint orphan case above). Poll for the
+      // account to actually be readable before moving on, instead of racing straight into create_pool.
+      for (let attempt = 0; attempt < 10 && !(await existsOnFork(allowedMarketPda)); attempt++) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+
+    const [poolPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("pool"), market.toBuffer(), vannaReserve.toBuffer()],
+      program.programId,
+    );
+    if (await existsOnFork(poolPda)) {
+      console.log("  create_pool: pool already exists, skipping. Pool PDA:", poolPda.toBase58());
+      return;
+    }
+
+    // create_pool inits 7 accounts seeded/derived off the pool PDA — the share mints plus 5 token
+    // accounts owned by the pool (pool_cash, pool_yes, pool_no, pool_usdc, pool_vanna_shares). Any
+    // of them can only ever be legitimate alongside the pool itself (all 7 are created together in
+    // this one transaction) — if the pool doesn't exist (just confirmed above) but one of these
+    // does, it's orphaned garbage from an earlier attempt that existed before a fork reset wiped
+    // just the pool account. Observed live for "Will Seattle win?": pool missing, but its pool_yes
+    // ATA still held real Token-2022 data, which made create_pool fail with the confusing "Provided
+    // owner is not allowed" (not a clean "already in use", because `associated_token::init` behaves
+    // differently than a plain PDA `init` when the target address already has token-account data).
+    // Clear all 7 via the reset cheatcode before retrying. Resetting a genuinely-nonexistent PDA is
+    // a harmless no-op (nothing on mainnet to reclone, so it just stays cleared).
+    const [yesSharesPda] = PublicKey.findProgramAddressSync([Buffer.from("yes_shares"), poolPda.toBuffer()], program.programId);
+    const [noSharesPda] = PublicKey.findProgramAddressSync([Buffer.from("no_shares"), poolPda.toBuffer()], program.programId);
+    const poolCashAta = getAssociatedTokenAddressSync(cashMint, poolPda, true, TOKEN_2022_PROGRAM_ID);
+    const poolYesAta = getAssociatedTokenAddressSync(yesMint, poolPda, true, TOKEN_2022_PROGRAM_ID);
+    const poolNoAta = getAssociatedTokenAddressSync(noMint, poolPda, true, TOKEN_2022_PROGRAM_ID);
+    const poolUsdcAta = getAssociatedTokenAddressSync(USDC_MINT, poolPda, true, TOKEN_PROGRAM_ID);
+    const poolVannaSharesAta = getAssociatedTokenAddressSync(vannaShareMint, poolPda, true, TOKEN_PROGRAM_ID);
+    await Promise.all(
+      [yesSharesPda, noSharesPda, poolCashAta, poolYesAta, poolNoAta, poolUsdcAta, poolVannaSharesAta].map((pk) =>
+        fetch(connection.rpcEndpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "surfnet_resetAccount", params: [pk.toBase58()] }),
+        }).catch(() => null),
+      ),
+    );
+
+    const sig2 = await program.methods
+      .createPool()
+      .accounts({
+        payer: wallet.publicKey,
+        market,
+        vannaReserve,
+        usdcMint: USDC_MINT,
+        vannaShareMint,
+        collateralMint: cashMint,
+        yesMint,
+        noMint,
+      })
+      .rpc();
+    console.log("  create_pool tx:", sig2);
+    console.log("  pool PDA:", poolPda.toBase58());
+  }
+}
+
 async function setSwapPolicy() {
   const keeper = new PublicKey(process.argv[3]);
   const maxSwapLossBps = Number(process.argv[4] ?? 10);
@@ -241,7 +392,7 @@ async function showConfig() {
   console.log(cfg);
 }
 
-const commands = { initializeConfig, allowMarket, createPool, mergeAndDeposit, setSwapPolicy, showConfig };
+const commands = { initializeConfig, allowMarket, createPool, onboardMarket, mergeAndDeposit, setSwapPolicy, showConfig };
 
 if (!commands[cmd]) {
   console.error(`Unknown command "${cmd}". Available: ${Object.keys(commands).join(", ")}`);

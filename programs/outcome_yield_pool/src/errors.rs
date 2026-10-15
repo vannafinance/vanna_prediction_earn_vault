@@ -48,4 +48,8 @@ pub enum PoolError {
     SwapBelowMinimum,
     #[msg("Swap loss tolerance exceeds the cap")]
     InvalidSwapPolicy,
+    #[msg("Market's CASH vault belongs to a World Group; use merge_and_deposit_in_group")]
+    MarketInGroup,
+    #[msg("Group does not own the market's CASH vault")]
+    GroupMismatch,
 }
